@@ -9,7 +9,7 @@ os.environ['LDFLAGS'] = '-framework Carbon -framework ApplicationServices'
 
 
 extra_setup_args = {}
-os_helper = Extension("_mv_helper",
+os_helper = Extension("_mw_helper",
     ["_os_helper.cpp", "_os_interface.cpp"],
     extra_link_args = ["-framework Carbon", "-framework ApplicationServices"],
     language="c++",
