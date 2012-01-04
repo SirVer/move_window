@@ -1,7 +1,7 @@
 %.cpp: %.pyx
 	cython --cplus $< -o $@
 
-all: _os_helper.cpp
+all: _mw_helper.cpp
 	python setup.py build_ext --inplace
 
 clean:
