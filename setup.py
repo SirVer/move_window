@@ -10,7 +10,7 @@ os.environ['LDFLAGS'] = '-framework Carbon -framework ApplicationServices'
 
 
 os_helper = Extension("_os_helper",
-    ["_os_helper.pyx", "pid.cpp"],
+    ["_os_helper.pyx", "_os_interface.cpp"],
     extra_link_args = ["-framework Carbon", "-framework ApplicationServices"],
     language="c++",
 )
