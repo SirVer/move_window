@@ -5,7 +5,7 @@ import argparse
 import re
 import subprocess
 
-import _os_helper
+import _mw_helper
 
 import appscript as AS
 
@@ -27,23 +27,17 @@ def get_resolutions():
     return rv
 
 def move_window(x, y, w, h):
-    print "In move window"
-    capp_name = _os_helper.frontmost_process()
+    capp_name = _mw_helper.frontmost_process()
     app = AS.Application(capp_name)
-    print "capp_name: %s" % (capp_name)
     try:
         app.windows[1].position.set((x, y))
         app.windows[1].size.set((w, h))
     except AttributeError:
         app.windows[1].bounds.set((x, y, x + w, y + h))
-    print "all done"
 
 def main():
-    print "Parsing args"
     cmd = parse_args().cmd
-    print "getting resolutions"
-    res = _os_helper.get_resolutions()
-    print "Calculating"
+    res = _mw_helper.get_resolutions()
 
     screen, cmd = (0, cmd) if not cmd else (int(cmd[0]), cmd[1:])
     xratio, cmd = (1, cmd) if not cmd else (int(cmd[0]), cmd[1:])
