@@ -23,11 +23,15 @@ Usage
 -----
 
 The syntax is easy: move_window takes screen id, number of x partitions, a range,
-number of y partitions, a range done. Examples:
+number of y partitions, a range done. Examples::
 
-move_window 0 # Move current window to first screen (0), fill entire screen
-move_window 021 # fill left half of first screen (screen id 0, 2 X partitions, fill first)
-move_window 02031 # first screen (0), left half (20), divide in 3 parts in y direction (3) and use middle (1)
+   move_window 0     # Move current window to first screen (0), fill entire screen
+   move_window 021   # fill left half of first screen (screen id 0, 2 X partitions, fill first)
+   move_window 02031 # first screen (0), left half (20), divide in 3 parts in y direction (3) and use middle (1)
+
+See also my `introductive blog post`__ for more information and examples.
+
+__ http://www.sirver.net/blog/2012/01/04/move-window-done-right/
 
 The `contrib` directory contains an AppleScript that I use for Launchbar
 Integration. Just drop into `~/Library/Application Support/LaunchBar/Actions`,
