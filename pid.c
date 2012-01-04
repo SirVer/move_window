@@ -1,6 +1,6 @@
 #include <Carbon/Carbon.h>
 
-void frontmost_process(char *buffer, int n) {
+void get_frontmost_process(char *buffer, int n) {
 	ProcessSerialNumber psn = { 0L, 0L };
 	OSStatus err = GetFrontProcess(&psn);
 

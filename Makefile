@@ -1,3 +1,6 @@
+all:
+	python setup.py build_ext --inplace
 
-pid: pid.c
-	gcc -O3 -framework Carbon $< -o pid
+clean:
+	python setup.py clean
+	rm -rf *.so

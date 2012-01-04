@@ -5,6 +5,8 @@ import argparse
 import re
 import subprocess
 
+import _os_helper
+
 import appscript as AS
 
 def parse_args():
@@ -26,7 +28,7 @@ def get_resolutions():
 
 def move_window(x, y, w, h):
     print "In move window"
-    capp_name, = AS.Application("System Events").processes[AS.its.frontmost == True].name()
+    capp_name = _os_helper.frontmost_process()
     app = AS.Application(capp_name)
     print "capp_name: %s" % (capp_name)
     try:
