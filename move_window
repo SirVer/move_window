@@ -32,7 +32,7 @@ def move_window(x, y, w, h):
     try:
         app.windows[1].position.set((x, y))
         app.windows[1].size.set((w, h))
-    except AttributeError:
+    except (AttributeError, AS.reference.CommandError) as err:
         app.windows[1].bounds.set((x, y, x + w, y + h))
 
 def main():
