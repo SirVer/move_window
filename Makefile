@@ -3,4 +3,4 @@ all:
 
 clean:
 	python setup.py clean
-	rm -rf *.so
+	rm -rf *.so _os_helper.c _os_helper.cpp _os_helper.cc

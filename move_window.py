@@ -42,7 +42,7 @@ def main():
     print "Parsing args"
     cmd = parse_args().cmd
     print "getting resolutions"
-    res = get_resolutions()
+    res = _os_helper.get_resolutions()
     print "Calculating"
 
     screen, cmd = (0, cmd) if not cmd else (int(cmd[0]), cmd[1:])
