@@ -62,6 +62,7 @@ def main():
         try:
             x = -res[1][0]
             y = 0
+            left_limit = 0
         except IndexError:
             if len(res)<=screen:
                 print "Your screen(s):"
