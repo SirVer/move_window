@@ -4,6 +4,7 @@
 import argparse
 import re
 import subprocess
+from sys import exit
 
 import _mw_helper
 
@@ -55,8 +56,16 @@ def main():
         x, y = 0, 22
         res[0][1] -= 22
     else:
-        x = -res[1][0]
-        y = 0
+        try:
+            x = -res[1][0]
+            y = 0
+        except IndexError:
+            if len(res)<=screen:
+                print "Your screen(s):"
+                for residx in range(len(res)):
+                    print "   [{0}]: {1} x {2}".format(residx,res[residx][0],res[residx][1])
+                print "Tried to move window to screen {0}, but it does not exist.".format(screen)
+                exit()
 
     assert(screen in [0,1])
 
