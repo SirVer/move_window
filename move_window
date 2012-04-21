@@ -14,6 +14,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Move windows via AppleEvents')
     parser.add_argument('cmd', type=str, default="0",
                        help='<screen=0><xratio=1><xpos=0[-ypos]><yratio=1><ypos=0[-ypos]>')
+    parser.add_argument('-L','--left-limit',type=int,default=0,dest='left_limit',
+                       help='sets the left-hand limit (in pixels) so that windows do not get moved under a left-side dock')
 
     return parser.parse_args()
 
@@ -38,6 +40,7 @@ def move_window(x, y, w, h):
 
 def main():
     cmd = parse_args().cmd
+    left_limit = parse_args().left_limit
     res = _mw_helper.get_resolutions()
 
     screen, cmd = (0, cmd) if not cmd else (int(cmd[0]), cmd[1:])
@@ -69,12 +72,12 @@ def main():
 
     assert(screen in [0,1])
 
-    one_width = (res[screen][0] / xratio)
+    one_width = ((res[screen][0] - left_limit) / xratio)
     one_height = (res[screen][1] / yratio)
 
     w = one_width * (xpos_e - xpos_s + 1)
     h = one_height * (ypos_e - ypos_s + 1)
-    x += one_width * xpos_s
+    x += one_width * xpos_s + left_limit
     y += one_height * ypos_s
 
     move_window(x, y, w, h)
