@@ -19,16 +19,6 @@ def parse_args():
 
     return parser.parse_args()
 
-def get_resolutions():
-    sp = subprocess.Popen(["system_profiler", "SPDisplaysDataType"], stdout=subprocess.PIPE)
-
-    rv = []
-    for line in sp.stdout:
-        if "Resolution" in line:
-            m = re.search(r"(\d+)\s*x\s*(\d+)", line)
-            rv.append( [int(m.group(1)), int(m.group(2))] )
-    return rv
-
 def move_window(x, y, w, h):
     capp_name = _mw_helper.frontmost_process()
     app = AS.Application(capp_name)
