@@ -16,12 +16,15 @@ def parse_args():
                        help='<screen=0><xratio=1><xpos=0[-ypos]><yratio=1><ypos=0[-ypos]>')
     parser.add_argument('-L','--left-limit',type=int,default=0,dest='left_limit',
                        help='sets the left-hand limit (in pixels) so that windows do not get moved under a left-side dock')
+    parser.add_argument('-a','--application',type=str,default=None,dest='application',
+                       help='selects the application to move')
 
     return parser.parse_args()
 
-def move_window(x, y, w, h):
-    capp_name = _mw_helper.frontmost_process()
-    app = AS.Application(capp_name)
+def move_window(x, y, w, h, application=None):
+    capp_name = application or _mw_helper.frontmost_process()
+    se = AS.app('System Events')
+    app = se.application_processes[capp_name]
     try:
         app.windows[1].position.set((x, y))
         app.windows[1].size.set((w, h))
@@ -31,6 +34,7 @@ def move_window(x, y, w, h):
 def main():
     cmd = parse_args().cmd
     left_limit = parse_args().left_limit
+    application = parse_args().application
     res = _mw_helper.get_resolutions()
 
     screen, cmd = (0, cmd) if not cmd else (int(cmd[0]), cmd[1:])
@@ -71,7 +75,7 @@ def main():
     x += one_width * xpos_s + left_limit
     y += one_height * ypos_s
 
-    move_window(x, y, w, h)
+    move_window(x, y, w, h, application)
 
 
 
