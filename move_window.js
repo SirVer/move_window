@@ -1,4 +1,5 @@
-#!osascript -lJavaScript 
+#!osascript -lJavaScript
+// vim:ft=javascript:
 
 ObjC.import('AppKit')
 
@@ -8,7 +9,7 @@ function getResolution() {
    return { width: frame.width, height: frame.height };
 }
 
-// Returns the name of the frontMost Applicatine, i.e. 'iTerm' or 'Finder'.
+// Returns the name of the frontMost Application, i.e. 'iTerm' or 'Finder'.
 function getFrontmostApplicationName() {
    return $.NSWorkspace
       .sharedWorkspace
@@ -21,7 +22,7 @@ function parseArgs(args) {
    res = getResolution();
 
    // TODO(sirver): support more than one screen
-   var screen = 0; 
+   var screen = 0;
    args = args.substr(1);
 
    var xratio = 1;
@@ -42,7 +43,7 @@ function parseArgs(args) {
       ypos_e = parseInt(args[0]); args = args.substr(2);
    }
 
-   var x, y; 
+   var x, y;
    if (screen == 0) {
       // Take Menu bar into account.
       x = 0;
@@ -71,4 +72,3 @@ function run(args) {
       win.bounds = newBounds;
    }
 }
-
