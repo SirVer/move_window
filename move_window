@@ -1,4 +1,4 @@
-#!osascript -lJavaScript
+#!/usr/bin/osascript -l JavaScript
 // vim:ft=javascript:
 
 ObjC.import('AppKit');
