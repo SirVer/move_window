@@ -1,0 +1,13 @@
+[package]
+name = "move_window"
+version = "0.1.0"
+authors = ["Holger Rapp <hrapp@lyft.com>"]
+edition = "2018"
+
+[dependencies]
+objc = "0.2.5"
+core-foundation = "0.6.3"
+cocoa = "0.18.4"
+serde_derive = "1.0.89"
+osascript = "0.3.0"
+serde = "1.0.89"
