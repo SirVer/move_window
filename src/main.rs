@@ -107,7 +107,7 @@ fn get_screen_dimensions(screen_index: usize) -> Rect {
     };
     Rect {
         x: s.origin.x as i32,
-        y: s.origin.x as i32,
+        y: s.origin.y as i32,
         width: s.size.width as i32,
         height: s.size.height as i32,
     }
