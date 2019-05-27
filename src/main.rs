@@ -73,7 +73,7 @@ impl MoveParameters {
                 i.next();
                 next_integer(&mut i)?
             }
-            Some(_) => return Err("Expected number.".to_string()),
+            Some(_) => params.x_end,
             None => return Ok(params),
         };
 
@@ -91,10 +91,9 @@ impl MoveParameters {
                 i.next();
                 next_integer(&mut i)?
             }
-            Some(_) => return Err("Expected number.".to_string()),
+            Some(_) => return Err("No more input expected.".to_string()),
             None => return Ok(params),
         };
-
         Ok(params)
     }
 }
