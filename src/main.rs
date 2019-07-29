@@ -5,7 +5,7 @@ extern crate objc;
 
 use cocoa::appkit::NSScreen;
 use cocoa::base::nil;
-use cocoa::foundation::{NSDictionary, NSString};
+use cocoa::foundation::{NSArray, NSDictionary, NSString};
 use objc::runtime::Class;
 use objc::runtime::Object;
 use osascript::JavaScript;
@@ -27,14 +27,25 @@ struct Rect {
 }
 
 #[derive(Debug)]
+enum ScreenSelector {
+    Index(usize),
+    Char(char),
+}
+#[derive(Debug)]
 struct MoveParameters {
-    screen_index: usize,
+    screen: ScreenSelector,
     x_ratio: i32,
     y_ratio: i32,
     x_start: i32,
     x_end: i32,
     y_start: i32,
     y_end: i32,
+}
+
+#[derive(Debug)]
+struct Screen {
+    index: u64,
+    rect: Rect,
 }
 
 fn next_integer(a: &mut ::std::iter::Peekable<impl Iterator<Item = char>>) -> Result<i32, String> {
@@ -49,8 +60,16 @@ impl MoveParameters {
     pub fn from_command(s: &str) -> Result<Self, String> {
         let mut i = s.chars().peekable();
 
+        let screen = {
+            let c = i.next().ok_or_else(|| "No more items".to_string())?;
+            match c {
+                '0'...'9' => ScreenSelector::Index(c.to_digit(10).unwrap() as usize),
+                c => ScreenSelector::Char(c),
+            }
+        };
+
         let mut params = MoveParameters {
-            screen_index: next_integer(&mut i)? as usize,
+            screen,
             x_ratio: 1,
             y_ratio: 1,
             x_start: 0,
@@ -98,18 +117,26 @@ impl MoveParameters {
     }
 }
 
-fn get_screen_dimensions(screen_index: usize) -> Rect {
-    let s = unsafe {
-        let screens = NSScreen::screens(nil);
-        let screen: *mut Object = msg_send![screens, objectAtIndex: screen_index];
-        screen.visibleFrame()
+fn get_screens() -> Vec<Screen> {
+    let mut rv = Vec::new();
+    unsafe {
+        let screens: *mut Object = NSScreen::screens(nil);
+        for index in 0..NSArray::count(screens) {
+            let screen: *mut Object = msg_send![screens, objectAtIndex: index];
+            let s = screen.visibleFrame();
+            rv.push(Screen {
+                index,
+                rect: Rect {
+                    x: s.origin.x as i32,
+                    y: s.origin.y as i32,
+                    width: s.size.width as i32,
+                    height: s.size.height as i32,
+                },
+            })
+        }
     };
-    Rect {
-        x: s.origin.x as i32,
-        y: s.origin.y as i32,
-        width: s.size.width as i32,
-        height: s.size.height as i32,
-    }
+    rv.sort_by_key(|s| s.rect.x);
+    rv
 }
 
 fn get_frontmost_application_name() -> String {
@@ -138,12 +165,22 @@ fn main() {
         }
     };
 
-    let screen = get_screen_dimensions(params.screen_index);
-    let width = f64::from(screen.width) / f64::from(params.x_ratio);
-    let height = f64::from(screen.height) / f64::from(params.y_ratio);
+    let screens = get_screens();
+    let screen = match params.screen {
+        ScreenSelector::Index(index) => &screens[index],
+        ScreenSelector::Char(c) => match c {
+            'l' => &screens[0],
+            'm' | 'c' => &screens[1],
+            'r' => &screens[screens.len() - 1],
+            _ => panic!("Unknown character for screen selection: {}", c),
+        }
+    };
+
+    let width = f64::from(screen.rect.width) / f64::from(params.x_ratio);
+    let height = f64::from(screen.rect.height) / f64::from(params.y_ratio);
     let frame = Rect {
-        x: (f64::from(screen.x) + width * f64::from(params.x_start)).round() as i32,
-        y: (f64::from(screen.y) + height * f64::from(params.y_start)).round() as i32,
+        x: (f64::from(screen.rect.x) + width * f64::from(params.x_start)).round() as i32,
+        y: (f64::from(screen.rect.y) + height * f64::from(params.y_start)).round() as i32,
         width: (width * f64::from(params.x_end - params.x_start + 1)).round() as i32,
         height: (height * f64::from(params.y_end - params.y_start + 1)).round() as i32,
     };
