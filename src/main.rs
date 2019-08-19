@@ -9,7 +9,7 @@ use cocoa::foundation::{NSArray, NSDictionary, NSString};
 use objc::runtime::Class;
 use objc::runtime::Object;
 use osascript::JavaScript;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::ffi::CStr;
 
 #[derive(Serialize)]
@@ -18,7 +18,7 @@ struct MoveWindowParams {
     r: Rect,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct Rect {
     x: i32,
     y: i32,
@@ -45,7 +45,8 @@ struct MoveParameters {
 #[derive(Debug)]
 struct Screen {
     index: u64,
-    rect: Rect,
+    visible_frame: Rect,
+    frame: Rect,
 }
 
 fn next_integer(a: &mut ::std::iter::Peekable<impl Iterator<Item = char>>) -> Result<i32, String> {
@@ -63,7 +64,7 @@ impl MoveParameters {
         let screen = {
             let c = i.next().ok_or_else(|| "No more items".to_string())?;
             match c {
-                '0'...'9' => ScreenSelector::Index(c.to_digit(10).unwrap() as usize),
+                '0'..='9' => ScreenSelector::Index(c.to_digit(10).unwrap() as usize),
                 c => ScreenSelector::Char(c),
             }
         };
@@ -123,19 +124,33 @@ fn get_screens() -> Vec<Screen> {
         let screens: *mut Object = NSScreen::screens(nil);
         for index in 0..NSArray::count(screens) {
             let screen: *mut Object = msg_send![screens, objectAtIndex: index];
-            let s = screen.visibleFrame();
+            let visible_frame = screen.visibleFrame();
+            let frame = screen.frame();
             rv.push(Screen {
                 index,
-                rect: Rect {
-                    x: s.origin.x as i32,
-                    y: s.origin.y as i32,
-                    width: s.size.width as i32,
-                    height: s.size.height as i32,
+                visible_frame: Rect {
+                    x: visible_frame.origin.x as i32,
+                    y: visible_frame.origin.y as i32,
+                    width: visible_frame.size.width as i32,
+                    height: visible_frame.size.height as i32,
+                },
+                frame: Rect {
+                    x: frame.origin.x as i32,
+                    y: frame.origin.y as i32,
+                    width: frame.size.width as i32,
+                    height: frame.size.height as i32,
                 },
             })
         }
     };
-    rv.sort_by_key(|s| s.rect.x);
+    // The window frames have their origins in the bottom left of the screen, y going upwards.
+    // However, screen bounds have the origin at the top left going down. We need to convert here
+    // to get them in the screen space.
+    for idx in 1..rv.len() {
+        let y = rv[0].frame.height - rv[idx].visible_frame.height - rv[idx].visible_frame.y;
+        rv[idx].visible_frame.y = y;
+    }
+    rv.sort_by_key(|s| s.visible_frame.x);
     rv
 }
 
@@ -167,20 +182,28 @@ fn main() {
 
     let screens = get_screens();
     let screen = match params.screen {
-        ScreenSelector::Index(index) => &screens[index],
+        ScreenSelector::Index(index) => {
+            let mut screen = None;
+            for s in &screens {
+                if s.index == index as u64 {
+                    screen = Some(s)
+                }
+            }
+            screen.expect("Unknown screen index.")
+        }
         ScreenSelector::Char(c) => match c {
             'l' => &screens[0],
             'm' | 'c' => &screens[1],
             'r' => &screens[screens.len() - 1],
             _ => panic!("Unknown character for screen selection: {}", c),
-        }
+        },
     };
 
-    let width = f64::from(screen.rect.width) / f64::from(params.x_ratio);
-    let height = f64::from(screen.rect.height) / f64::from(params.y_ratio);
+    let width = f64::from(screen.visible_frame.width) / f64::from(params.x_ratio);
+    let height = f64::from(screen.visible_frame.height) / f64::from(params.y_ratio);
     let frame = Rect {
-        x: (f64::from(screen.rect.x) + width * f64::from(params.x_start)).round() as i32,
-        y: (f64::from(screen.rect.y) + height * f64::from(params.y_start)).round() as i32,
+        x: (f64::from(screen.visible_frame.x) + width * f64::from(params.x_start)).round() as i32,
+        y: (f64::from(screen.visible_frame.y) + height * f64::from(params.y_start)).round() as i32,
         width: (width * f64::from(params.x_end - params.x_start + 1)).round() as i32,
         height: (height * f64::from(params.y_end - params.y_start + 1)).round() as i32,
     };

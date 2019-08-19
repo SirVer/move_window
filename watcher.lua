@@ -13,12 +13,12 @@ return {
         -- command = "cargo check --release --color=always",
       -- },
       {
-        name = "Running cargo clippy",
-        command = "cargo clippy --release --color=always",
-      },
-      {
         name = "Running cargo build",
         command = "cargo build --release --color=always",
+      },
+      {
+        name = "Running cargo clippy",
+        command = "cargo clippy --color=always -- -D warnings",
       },
     }
   },
