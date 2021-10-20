@@ -31,6 +31,7 @@ enum ScreenSelector {
     Index(usize),
     Char(char),
 }
+
 #[derive(Debug)]
 struct MoveParameters {
     screen: ScreenSelector,
@@ -143,6 +144,7 @@ fn get_screens() -> Vec<Screen> {
             })
         }
     };
+    println!("#sirver rv: {:#?}", rv);
     // The window frames have their origins in the bottom left of the screen, y going upwards.
     // However, screen bounds have the origin at the top left going down. We need to convert here
     // to get them in the screen space.
@@ -150,7 +152,6 @@ fn get_screens() -> Vec<Screen> {
         let y = rv[0].frame.height - rv[idx].visible_frame.height - rv[idx].visible_frame.y;
         rv[idx].visible_frame.y = y;
     }
-    rv.sort_by_key(|s| s.visible_frame.x);
     rv
 }
 
@@ -181,20 +182,24 @@ fn main() {
     };
 
     let screens = get_screens();
-    let screen = match params.screen {
-        ScreenSelector::Index(index) => {
-            let mut screen = None;
-            for s in &screens {
-                if s.index == index as u64 {
-                    screen = Some(s)
-                }
+    let get_screen_by_index = |index| {
+        let mut screen = None;
+        for s in &screens {
+            if s.index == index as u64 {
+                screen = Some(s)
             }
-            screen.expect("Unknown screen index.")
         }
+        screen.expect("Unknown screen index.")
+    };
+    println!("#sirver screens: {:#?}", screens);
+    let screen = match params.screen {
+        ScreenSelector::Index(index) => get_screen_by_index(index),
         ScreenSelector::Char(c) => match c {
-            'l' => &screens[0],
-            'm' | 'c' => &screens[1],
-            'r' => &screens[screens.len() - 1],
+            'm' | 'c' => get_screen_by_index(0),
+            'l' => screens.iter().min_by_key(|s| s.frame.x).unwrap(),
+            'r' => screens.iter().max_by_key(|s| s.frame.x).unwrap(),
+            't' | 'u' => screens.iter().max_by_key(|s| s.frame.y).unwrap(),
+            'b' | 'd' => screens.iter().min_by_key(|s| s.frame.y).unwrap(),
             _ => panic!("Unknown character for screen selection: {}", c),
         },
     };
