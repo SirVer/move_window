@@ -144,7 +144,6 @@ fn get_screens() -> Vec<Screen> {
             })
         }
     };
-    println!("#sirver rv: {:#?}", rv);
     // The window frames have their origins in the bottom left of the screen, y going upwards.
     // However, screen bounds have the origin at the top left going down. We need to convert here
     // to get them in the screen space.
@@ -191,7 +190,6 @@ fn main() {
         }
         screen.expect("Unknown screen index.")
     };
-    println!("#sirver screens: {:#?}", screens);
     let screen = match params.screen {
         ScreenSelector::Index(index) => get_screen_by_index(index),
         ScreenSelector::Char(c) => match c {
