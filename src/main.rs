@@ -6,21 +6,13 @@ extern crate objc;
 // NOCOM(#hrapp): Check and update dependencies?
 use cocoa::appkit::NSScreen;
 use cocoa::base::nil;
-use cocoa::foundation::{NSArray, NSDictionary, NSString};
+use cocoa::foundation::NSArray;
 use objc::runtime::Class;
 use objc::runtime::Object;
-use serde_derive::{Deserialize, Serialize};
-use std::ffi::CStr;
 
 mod window;
 
-#[derive(Serialize)]
-struct MoveWindowParams {
-    app_name: String,
-    r: Rect,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -156,19 +148,6 @@ fn get_screens() -> Vec<Screen> {
     rv
 }
 
-fn get_frontmost_application_name() -> String {
-    let app_name = unsafe {
-        let workspace_class = Class::get("NSWorkspace").unwrap();
-        let maybe_app: *mut Object = msg_send![workspace_class, frontmostApplication];
-        let active_app: *mut Object = msg_send![maybe_app, get];
-        println!("#hrapp active_app: {:#?}", active_app);
-        let v = active_app.objectForKey_(NSString::alloc(nil).init_str("NSApplicationName"));
-        let k = v.UTF8String();
-        CStr::from_ptr(k)
-    };
-    app_name.to_str().unwrap().to_string()
-}
-
 fn frontmost_application_pid() -> Option<i32> {
     unsafe {
         let workspace_class = Class::get("NSWorkspace").unwrap();
@@ -239,13 +218,5 @@ fn main() {
     };
 
     let pid = frontmost_application_pid().unwrap();
-    // let app_name = get_frontmost_application_name();
-
-    // NOCOM(#hrapp): remove boolean thingy
-    let mut windows = window::window_list(false);
-    windows.retain(|w| w.is_onscreen && w.owner_pid == pid);
-    if windows.len() != 1 {
-        panic!("More than one potential window. Need to figure this case out.");
-    }
-    windows[0].move_to(&frame).unwrap();
+    window::move_frontmost_window(pid, &frame).unwrap();
 }
