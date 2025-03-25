@@ -3,14 +3,16 @@
 #[macro_use]
 extern crate objc;
 
+// NOCOM(#hrapp): Check and update dependencies?
 use cocoa::appkit::NSScreen;
 use cocoa::base::nil;
 use cocoa::foundation::{NSArray, NSDictionary, NSString};
 use objc::runtime::Class;
 use objc::runtime::Object;
-use osascript::JavaScript;
 use serde_derive::{Deserialize, Serialize};
 use std::ffi::CStr;
+
+mod window;
 
 #[derive(Serialize)]
 struct MoveWindowParams {
@@ -19,11 +21,11 @@ struct MoveWindowParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct Rect {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
 }
 
 #[derive(Debug)]
@@ -157,8 +159,9 @@ fn get_screens() -> Vec<Screen> {
 fn get_frontmost_application_name() -> String {
     let app_name = unsafe {
         let workspace_class = Class::get("NSWorkspace").unwrap();
-        let wspace: *mut Object = msg_send![workspace_class, sharedWorkspace];
-        let active_app: *mut Object = msg_send![wspace, activeApplication];
+        let maybe_app: *mut Object = msg_send![workspace_class, frontmostApplication];
+        let active_app: *mut Object = msg_send![maybe_app, get];
+        println!("#hrapp active_app: {:#?}", active_app);
         let v = active_app.objectForKey_(NSString::alloc(nil).init_str("NSApplicationName"));
         let k = v.UTF8String();
         CStr::from_ptr(k)
@@ -166,7 +169,31 @@ fn get_frontmost_application_name() -> String {
     app_name.to_str().unwrap().to_string()
 }
 
+fn frontmost_application_pid() -> Option<i32> {
+    unsafe {
+        let workspace_class = Class::get("NSWorkspace").unwrap();
+        let wspace: *mut Object = msg_send![workspace_class, sharedWorkspace];
+        let front_app: *mut Object = msg_send![wspace, frontmostApplication];
+        println!("#hrapp ALIVE {}:{}", file!(), line!());
+        if front_app == nil {
+            return None;
+        }
+        println!("#hrapp ALIVE {}:{}", file!(), line!());
+
+        // Get application name (localizedName)
+        println!("#hrapp ALIVE {}:{}", file!(), line!());
+        let pid = msg_send![front_app, processIdentifier];
+        println!("#hrapp pid: {:#?}", pid);
+
+        Some(pid)
+    }
+}
+
 fn main() {
+    if !window::check_accessibility_permission() {
+        panic!("Accessibility permissions not granted. Please enable them in System Settings.");
+    }
+
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 {
         eprintln!("Usage: move_window <move_command>");
@@ -211,20 +238,14 @@ fn main() {
         height: (height * f64::from(params.y_end - params.y_start + 1)).round() as i32,
     };
 
-    let app_name = get_frontmost_application_name();
-    let script = JavaScript::new(
-        "
-        var app = Application($params.app_name);
-        app.windows[0].bounds = {
-            x: $params.r.x,
-            y: $params.r.y,
-            width: $params.r.width,
-            height: $params.r.height,
-        };
-    ",
-    );
+    let pid = frontmost_application_pid().unwrap();
+    // let app_name = get_frontmost_application_name();
 
-    script
-        .execute_with_params::<_, ()>(MoveWindowParams { app_name, r: frame })
-        .unwrap();
+    // NOCOM(#hrapp): remove boolean thingy
+    let mut windows = window::window_list(false);
+    windows.retain(|w| w.is_onscreen && w.owner_pid == pid);
+    if windows.len() != 1 {
+        panic!("More than one potential window. Need to figure this case out.");
+    }
+    windows[0].move_to(&frame).unwrap();
 }
