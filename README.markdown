@@ -1,6 +1,6 @@
 # Move Window
 
-Move window is a script that I use to rearrange windows under Mac OS X without
+Move window is a tool that I use to rearrange windows under Mac OS X without
 touching the mouse.
 
 New windows open in Mac OS X wherever they want. Command line enthusiasts hate
@@ -10,13 +10,15 @@ it lets you position your windows very quickly and cleanly via the commandline
 
 ## Installation
 
-The script requires Mac OS X 10.10 (Yosemite) as it uses the JavaScript
-automation that was introduced in this version. Just drop the `move_window`
-script into a `bin` directory, for example `/usr/local/bin`.
+The tool should work on every reasonably modern Mac Os. It uses the
+Accessibility APIs to move windows around. You will need to make sure that
+either your terminal (or LaunchBar or whatever you are using) is allowed to
+control other programs.
+Just drop the `move_window` tool into a `bin` directory, for example `/usr/local/bin`.
 
 ## Usage
 
-The syntax is easy: move_window takes screen id, number of x partitions, a range,
+The syntax is easy: `move_window` takes screen id, number of x partitions, a range,
 number of y partitions, a range. Examples::
 
     move_window 0     # Move current window to first screen (0), fill entire screen
