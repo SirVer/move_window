@@ -16,10 +16,10 @@ return {
         name = "Running cargo build",
         command = "cargo build --release --color=always",
       },
-      -- {
-        -- name = "Running cargo clippy",
-        -- command = "cargo clippy --color=always -- -D warnings",
-      -- },
+      {
+        name = "Running cargo clippy",
+        command = "cargo clippy --color=always -- -D warnings",
+      },
     }
   },
 }

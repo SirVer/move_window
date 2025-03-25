@@ -1,16 +1,15 @@
-// TODO(sirver): The crate does not seem to work with Rust 2018 yet, so we need this old school
-// import.
-#[macro_use]
-extern crate objc;
+// TODO(hrapp): this is needed to shut up clippy warnings from `objc::msg_send`.
+#![allow(unexpected_cfgs)]
 
-// NOCOM(#hrapp): Check and update dependencies?
+use anyhow::{Result, bail};
 use cocoa::appkit::NSScreen;
 use cocoa::base::nil;
 use cocoa::foundation::NSArray;
 use objc::runtime::Class;
 use objc::runtime::Object;
+use objc::{msg_send, sel, sel_impl};
 
-mod window;
+mod axui;
 
 #[derive(Debug, Clone)]
 pub struct Rect {
@@ -59,7 +58,7 @@ impl MoveParameters {
         let screen = {
             let c = i.next().ok_or_else(|| "No more items".to_string())?;
             match c {
-                '0'..='9' => ScreenSelector::Index(c.to_digit(10).unwrap() as usize),
+                '0'..='9' => ScreenSelector::Index(c.to_digit(10).expect("by design.") as usize),
                 c => ScreenSelector::Char(c),
             }
         };
@@ -150,26 +149,18 @@ fn get_screens() -> Vec<Screen> {
 
 fn frontmost_application_pid() -> Option<i32> {
     unsafe {
-        let workspace_class = Class::get("NSWorkspace").unwrap();
+        let workspace_class = Class::get("NSWorkspace").expect("always there.");
         let wspace: *mut Object = msg_send![workspace_class, sharedWorkspace];
         let front_app: *mut Object = msg_send![wspace, frontmostApplication];
-        println!("#hrapp ALIVE {}:{}", file!(), line!());
         if front_app == nil {
             return None;
         }
-        println!("#hrapp ALIVE {}:{}", file!(), line!());
-
-        // Get application name (localizedName)
-        println!("#hrapp ALIVE {}:{}", file!(), line!());
-        let pid = msg_send![front_app, processIdentifier];
-        println!("#hrapp pid: {:#?}", pid);
-
-        Some(pid)
+        Some(msg_send![front_app, processIdentifier])
     }
 }
 
-fn main() {
-    if !window::check_accessibility_permission() {
+fn main() -> Result<()> {
+    if !axui::check_accessibility_permission() {
         panic!("Accessibility permissions not granted. Please enable them in System Settings.");
     }
 
@@ -200,10 +191,22 @@ fn main() {
         ScreenSelector::Index(index) => get_screen_by_index(index),
         ScreenSelector::Char(c) => match c {
             'm' | 'c' => get_screen_by_index(0),
-            'l' => screens.iter().min_by_key(|s| s.frame.x).unwrap(),
-            'r' => screens.iter().max_by_key(|s| s.frame.x).unwrap(),
-            't' | 'u' => screens.iter().max_by_key(|s| s.frame.y).unwrap(),
-            'b' | 'd' => screens.iter().min_by_key(|s| s.frame.y).unwrap(),
+            'l' => screens
+                .iter()
+                .min_by_key(|s| s.frame.x)
+                .expect("there are always screens."),
+            'r' => screens
+                .iter()
+                .max_by_key(|s| s.frame.x)
+                .expect("there are always screens."),
+            't' | 'u' => screens
+                .iter()
+                .max_by_key(|s| s.frame.y)
+                .expect("there are always screens."),
+            'b' | 'd' => screens
+                .iter()
+                .min_by_key(|s| s.frame.y)
+                .expect("there are always screens."),
             _ => panic!("Unknown character for screen selection: {}", c),
         },
     };
@@ -217,6 +220,10 @@ fn main() {
         height: (height * f64::from(params.y_end - params.y_start + 1)).round() as i32,
     };
 
-    let pid = frontmost_application_pid().unwrap();
-    window::move_frontmost_window(pid, &frame).unwrap();
+    let pid = match frontmost_application_pid() {
+        Some(p) => p,
+        None => bail!("Frontmost application has no PID."),
+    };
+    axui::move_frontmost_window(pid, &frame)?;
+    Ok(())
 }

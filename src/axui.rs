@@ -1,4 +1,5 @@
 use crate::Rect;
+use anyhow::{Result, bail};
 use cocoa::base::{id, nil};
 use core_foundation::{
     base::{CFTypeRef, TCFType},
@@ -12,12 +13,12 @@ pub fn check_accessibility_permission() -> bool {
 }
 
 /// Moves and resizes the focused window of the app with the given `pid` to `rect` using the macOS Accessibility API (native).
-pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<(), String> {
+pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<()> {
     unsafe {
         // Create AXUIElement reference to the app
         let ax_app = AXUIElementCreateApplication(pid);
         if ax_app == nil {
-            return Err("Unable to create AXUIElement reference to front app.".into());
+            bail!("Unable to create AXUIElement reference to front app.");
         }
 
         // Get the focused window from the app
@@ -28,9 +29,7 @@ pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<(), String> {
             &mut focused_window,
         );
         if result != 0 || focused_window == nil {
-            return Err(
-                "Unable to retrieve focused window. Accessibility permission required!".into(),
-            );
+            bail!("Unable to retrieve focused window. Accessibility permission required!",);
         }
 
         // Set window position (top-left)
@@ -44,7 +43,7 @@ pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<(), String> {
         );
 
         if set_pos_result != 0 {
-            return Err("Failed to set window position.".into());
+            bail!("Failed to set window position.");
         }
 
         // Set window size (width: 300, height: 400)
@@ -58,7 +57,7 @@ pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<(), String> {
         );
 
         if set_size_result != 0 {
-            return Err("Failed to set window size.".into());
+            bail!("Failed to set window size.");
         }
 
         Ok(())
@@ -72,15 +71,10 @@ enum AXValueType {
 }
 
 #[link(name = "ApplicationServices", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn AXUIElementCopyAttributeValue(element: id, attribute: CFTypeRef, value_out: *mut id) -> i32;
-
     fn AXUIElementSetAttributeValue(element: id, attribute: CFTypeRef, value: CFTypeRef) -> i32;
-
     fn AXValueCreate(typ: AXValueType, value_ptr: *const std::ffi::c_void) -> CFTypeRef;
-
     fn AXUIElementCreateApplication(pid: i32) -> id;
-
     fn AXIsProcessTrusted() -> bool;
-
 }
