@@ -2,10 +2,97 @@ use crate::Rect;
 use anyhow::{Result, bail};
 use cocoa::base::{id, nil};
 use core_foundation::{
-    base::{CFTypeRef, TCFType},
+    array::CFArray,
+    base::{CFType, CFTypeRef, TCFType},
+    boolean::CFBoolean,
+    number::CFNumber,
     string::CFString,
 };
-use core_graphics::geometry::{CGPoint, CGSize};
+use core_graphics::{
+    display::{
+        kCGWindowListExcludeDesktopElements, kCGWindowListOptionAll, kCGWindowListOptionOnScreenBelowWindow, CFDictionary, CGWindowListCopyWindowInfo
+    },
+    geometry::{CGPoint, CGSize},
+    window::kCGNullWindowID,
+};
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+pub struct Window {
+    pub name: Option<String>,
+    pub owner_pid: i32,
+    pub layer: i32,
+    pub number: u32,
+    pub owner_name: String,
+    pub bounds: Rect,
+    pub alpha: f64,
+    pub on_screen: bool,
+}
+
+impl Window {
+    fn from_cf_dict(dict: &CFDictionary<CFString, CFType>) -> Self {
+        let i32 = |s| {
+            dict.get(CFString::new(s))
+                .downcast::<CFNumber>()
+                .unwrap()
+                .to_i32()
+                .unwrap()
+        };
+        let f64 = |s| {
+            dict.get(CFString::new(s))
+                .downcast::<CFNumber>()
+                .unwrap()
+                .to_f64()
+                .unwrap()
+        };
+        let str = |s| {
+            dict.get(CFString::new(s))
+                .downcast::<CFString>()
+                .unwrap()
+                .to_string()
+        };
+        let bool = |s| match dict.find(CFString::new(s)) {
+            None => false,
+            Some(s) => s.downcast::<CFBoolean>().unwrap() == CFBoolean::true_value(),
+        };
+
+        let owner_pid = i32("kCGWindowOwnerPID");
+        let layer = i32("kCGWindowLayer");
+        let number = i32("kCGWindowNumber") as u32;
+        let alpha = f64("kCGWindowAlpha");
+        let owner_name = str("kCGWindowOwnerName");
+        let on_screen = bool("kCGWindowIsOnscreen");
+        let name = match dict.find(CFString::new("kCGWindowName")) {
+            None => None,
+            Some(s) => s.downcast::<CFString>().map(|s| s.to_string()),
+        };
+
+        let bounds = {
+            let item = dict.get(CFString::new("kCGWindowBounds"));
+            let bdict = unsafe {
+                CFDictionary::<CFString, CFNumber>::wrap_under_get_rule(item.as_CFTypeRef() as _)
+            };
+            let i32 = |s| bdict.get(CFString::new(s)).to_i32().unwrap();
+            Rect {
+                x: i32("X"),
+                y: i32("Y"),
+                width: i32("Width"),
+                height: i32("Height"),
+            }
+        };
+
+        Window {
+            owner_pid,
+            name,
+            bounds,
+            layer,
+            number,
+            owner_name,
+            alpha,
+            on_screen,
+        }
+    }
+}
 
 /// Returns true if the binary can access the accesibility APIs.
 pub fn check_accessibility_permission() -> bool {
@@ -32,6 +119,52 @@ fn frontmost_window_id(pid: i32) -> Result<id> {
         }
         Ok(focused_window)
     }
+}
+
+/// Fetch window list info and convert to Rust-friendly types.
+pub fn window_list(all_windows: bool) -> Vec<Window> {
+    let options = kCGWindowListExcludeDesktopElements | kCGWindowListOptionAll;
+
+    let window_info_ref = unsafe { CGWindowListCopyWindowInfo(options, kCGNullWindowID) };
+    let window_info = unsafe {
+        CFArray::<CFDictionary<CFString, CFType>>::wrap_under_create_rule(window_info_ref)
+    };
+
+    let mut window_vec = window_info
+        .iter()
+        .map(|d| Window::from_cf_dict(&d))
+        .collect::<Vec<_>>();
+
+    // TODO(sirver): This does not seem to do anything; I also never see "Dock" in the reported
+    // lists. The code was hard to get, so I kept it for the moment.
+    if !all_windows {
+        let dock_window_id =
+            window_vec
+                .iter()
+                .find_map(|win| match win.name.as_ref().map(|s| s as &str) {
+                    Some("Dock") => Some(win.number),
+                    Some(_) | None => None,
+                });
+
+        if let Some(dock_id) = dock_window_id {
+            let below_options =
+                kCGWindowListOptionOnScreenBelowWindow | kCGWindowListExcludeDesktopElements;
+            let below_window_info_ref =
+                unsafe { CGWindowListCopyWindowInfo(below_options, dock_id) };
+            let below_window_info = unsafe {
+                CFArray::<CFDictionary<CFString, CFType>>::wrap_under_create_rule(
+                    below_window_info_ref,
+                )
+            };
+
+            window_vec = below_window_info
+                .iter()
+                .map(|d| Window::from_cf_dict(&d))
+                .collect::<Vec<_>>();
+        }
+    }
+
+    window_vec
 }
 
 /// Moves and resizes the focused window of the app with the given `pid` to `rect` using the macOS Accessibility API (native).

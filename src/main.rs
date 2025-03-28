@@ -24,7 +24,7 @@ struct Args {
     subcommand: Command,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -61,6 +61,7 @@ enum Command {
     GetSpaceName(GetSpaceNameArgs),
     SetSpaceName(SetSpaceNameArgs),
     MoveWindow(MoveWindowArgs),
+    Windows(WindowsArgs),
 }
 
 /// Get the name of a space.
@@ -92,6 +93,11 @@ struct MoveWindowArgs {
     #[argh(positional)]
     move_command: String,
 }
+
+/// List the currently open Windows.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "windows")]
+struct WindowsArgs {}
 
 #[derive(Serialize, Deserialize, Default)]
 struct State {
@@ -340,6 +346,13 @@ fn get_space_name(args: GetSpaceNameArgs) -> Result<()> {
     Ok(())
 }
 
+fn windows(_args: WindowsArgs) -> Result<()> {
+    let out = axui::window_list(true);
+    let o = serde_json::to_string(&out).unwrap();
+    println!("{o}");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Args = argh::from_env();
     if !axui::check_accessibility_permission() {
@@ -350,6 +363,7 @@ fn main() -> Result<()> {
         Command::MoveWindow(args) => move_window(args)?,
         Command::GetSpaceName(args) => get_space_name(args)?,
         Command::SetSpaceName(args) => set_space_name(args)?,
+        Command::Windows(args) => windows(args)?,
     };
 
     Ok(())
