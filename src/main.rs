@@ -11,7 +11,7 @@ use objc::{msg_send, sel, sel_impl};
 
 mod axui;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -224,6 +224,13 @@ fn main() -> Result<()> {
         Some(p) => p,
         None => bail!("Frontmost application has no PID."),
     };
-    axui::move_frontmost_window(pid, &frame)?;
+    // We try really hard to move the windo into the right position, but give up
+    // after 10 times if it does not work.
+    for _ in 0..10 {
+        axui::move_frontmost_window(pid, &frame)?;
+        if axui::get_window_position_and_size(pid)? == frame {
+            break;
+        }
+    }
     Ok(())
 }
