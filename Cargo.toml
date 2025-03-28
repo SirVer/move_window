@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.97"
+argh = "0.1.13"
 cocoa = "0.26.0"
 core-foundation = "0.10.0"
 core-graphics = "0.24.0"

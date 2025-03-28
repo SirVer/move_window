@@ -2,6 +2,7 @@
 #![allow(unexpected_cfgs)]
 
 use anyhow::{Result, bail};
+use argh::FromArgs;
 use cocoa::appkit::NSScreen;
 use cocoa::base::nil;
 use cocoa::foundation::NSArray;
@@ -10,6 +11,19 @@ use objc::runtime::Object;
 use objc::{msg_send, sel, sel_impl};
 
 mod axui;
+mod skylight;
+
+#[derive(FromArgs)]
+/// Move windows or query spaces.
+struct Args {
+    /// prints the current space id and exits.
+    #[argh(switch)]
+    print_space: bool,
+
+    /// move command. Required unless `print_space`.
+    #[argh(positional)]
+    move_command: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rect {
@@ -160,16 +174,23 @@ fn frontmost_application_pid() -> Option<i32> {
 }
 
 fn main() -> Result<()> {
+    let args: Args = argh::from_env();
+
     if !axui::check_accessibility_permission() {
         panic!("Accessibility permissions not granted. Please enable them in System Settings.");
     }
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: move_window <move_command>");
-        std::process::exit(1);
+    if args.print_space {
+        let id = skylight::get_current_space_id();
+        println!("{id}");
+        return Ok(());
     }
-    let params = match MoveParameters::from_command(&args[1]) {
+
+    let Some(move_command) = args.move_command else {
+        bail!("Usage: move_window <move_command>");
+    };
+
+    let params = match MoveParameters::from_command(&move_command) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{}", e);
