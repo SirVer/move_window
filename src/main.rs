@@ -1,7 +1,7 @@
 // TODO(hrapp): this is needed to shut up clippy warnings from `objc::msg_send`.
 #![allow(unexpected_cfgs)]
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use cocoa::appkit::NSScreen;
 use cocoa::base::nil;
@@ -9,20 +9,19 @@ use cocoa::foundation::NSArray;
 use objc::runtime::Class;
 use objc::runtime::Object;
 use objc::{msg_send, sel, sel_impl};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 
 mod axui;
 mod skylight;
 
-#[derive(FromArgs)]
 /// Move windows or query spaces.
+#[derive(FromArgs)]
 struct Args {
-    /// prints the current space id and exits.
-    #[argh(switch)]
-    print_space: bool,
-
-    /// move command. Required unless `print_space`.
-    #[argh(positional)]
-    move_command: Option<String>,
+    #[argh(subcommand)]
+    subcommand: Command,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +54,80 @@ struct Screen {
     index: u64,
     visible_frame: Rect,
     frame: Rect,
+}
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum Command {
+    GetSpaceName(GetSpaceNameArgs),
+    SetSpaceName(SetSpaceNameArgs),
+    MoveWindow(MoveWindowArgs),
+}
+
+/// Get the name of a space.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "get_space_name")]
+struct GetSpaceNameArgs {
+    /// optional space id (defaults to current space)
+    #[argh(option, short = 'n')]
+    id: Option<u64>,
+}
+
+/// Set the name of a space.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "set_space_name")]
+struct SetSpaceNameArgs {
+    /// optional space id (defaults to current space)
+    #[argh(option, short = 'n')]
+    id: Option<u64>,
+
+    #[argh(positional)]
+    /// new name for the space. If not given, the name is reset.
+    name: Option<String>,
+}
+
+/// Move the current top level Window.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "move_window")]
+struct MoveWindowArgs {
+    #[argh(positional)]
+    move_command: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct State {
+    /// mapping from space number to space name
+    space_names: HashMap<u64, String>,
+}
+
+impl State {
+    /// Loads the state from the JSON file.
+    fn load() -> Result<Self> {
+        let state_file = state_file_path()?;
+        if !state_file.exists() {
+            return Ok(State::default());
+        }
+        let data = fs::read_to_string(&state_file).context("Failed to read state file")?;
+        let state: State =
+            serde_json::from_str(&data).context("Failed to parse state file as JSON")?;
+        Ok(state)
+    }
+
+    /// Saves the state to the JSON file.
+    fn save(self: &State) -> Result<()> {
+        let state_file = state_file_path()?;
+        let data = serde_json::to_string_pretty(self).context("Failed to serialize state")?;
+        fs::write(&state_file, data).context("Failed to write state file")?;
+        Ok(())
+    }
+}
+
+/// Constructs the path to the state file in a typical macOS location.
+fn state_file_path() -> Result<PathBuf> {
+    let home = std::env::var("HOME").context("Could not find HOME directory")?;
+    let mut path = PathBuf::from(home).join("Library/Application Support/move_window");
+    fs::create_dir_all(&path).context("Failed to create state directory")?;
+    path.push("state.json");
+    Ok(path)
 }
 
 fn next_integer(a: &mut ::std::iter::Peekable<impl Iterator<Item = char>>) -> Result<i32, String> {
@@ -173,24 +246,8 @@ fn frontmost_application_pid() -> Option<i32> {
     }
 }
 
-fn main() -> Result<()> {
-    let args: Args = argh::from_env();
-
-    if !axui::check_accessibility_permission() {
-        panic!("Accessibility permissions not granted. Please enable them in System Settings.");
-    }
-
-    if args.print_space {
-        let id = skylight::get_current_space_id();
-        println!("{id}");
-        return Ok(());
-    }
-
-    let Some(move_command) = args.move_command else {
-        bail!("Usage: move_window <move_command>");
-    };
-
-    let params = match MoveParameters::from_command(&move_command) {
+fn move_window(args: MoveWindowArgs) -> Result<()> {
+    let params = match MoveParameters::from_command(&args.move_command) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{}", e);
@@ -253,5 +310,47 @@ fn main() -> Result<()> {
             break;
         }
     }
+    Ok(())
+}
+
+fn set_space_name(args: SetSpaceNameArgs) -> Result<()> {
+    let mut state = State::load()?;
+    let id = args.id.unwrap_or_else(skylight::get_current_space_id);
+    match args.name {
+        None => {
+            state.space_names.remove(&id);
+        }
+        Some(s) => {
+            state.space_names.insert(id, s);
+        }
+    }
+
+    state.save()?;
+    Ok(())
+}
+
+fn get_space_name(args: GetSpaceNameArgs) -> Result<()> {
+    let state = State::load()?;
+    let id = args.id.unwrap_or_else(skylight::get_current_space_id);
+    let name = match state.space_names.get(&id) {
+        Some(s) => s as &str,
+        None => "Unnamed",
+    };
+    println!("{name}");
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    let args: Args = argh::from_env();
+    if !axui::check_accessibility_permission() {
+        panic!("Accessibility permissions not granted. Please enable them in System Settings.");
+    }
+
+    match args.subcommand {
+        Command::MoveWindow(args) => move_window(args)?,
+        Command::GetSpaceName(args) => get_space_name(args)?,
+        Command::SetSpaceName(args) => set_space_name(args)?,
+    };
+
     Ok(())
 }
