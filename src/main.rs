@@ -310,8 +310,14 @@ fn move_window(args: MoveWindowArgs) -> Result<()> {
     };
     // We try really hard to move the windo into the right position, but give up
     // after 10 times if it does not work.
+    // Also, AX events are async and there are programs that eat events if they come to close to
+    // each other (Firefox for example). This is an attempt to work around this; we alternate which
+    // command we send first on every try, so if the 2nd is eaten, we get it through on the next
+    // try.
+    let mut order = axui::Order::MoveResize;
     for _ in 0..10 {
-        axui::move_frontmost_window(pid, &frame)?;
+        axui::move_frontmost_window(pid, &frame, order)?;
+        order = order.swap();
         if axui::get_window_position_and_size(pid)? == frame {
             break;
         }

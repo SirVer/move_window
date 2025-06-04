@@ -10,7 +10,8 @@ use core_foundation::{
 };
 use core_graphics::{
     display::{
-        kCGWindowListExcludeDesktopElements, kCGWindowListOptionAll, kCGWindowListOptionOnScreenBelowWindow, CFDictionary, CGWindowListCopyWindowInfo
+        CFDictionary, CGWindowListCopyWindowInfo, kCGWindowListExcludeDesktopElements,
+        kCGWindowListOptionAll, kCGWindowListOptionOnScreenBelowWindow,
     },
     geometry::{CGPoint, CGSize},
     window::kCGNullWindowID,
@@ -167,29 +168,46 @@ pub fn window_list(all_windows: bool) -> Vec<Window> {
     window_vec
 }
 
-/// Moves and resizes the focused window of the app with the given `pid` to `rect` using the macOS Accessibility API (native).
-pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<()> {
+#[derive(Debug, Clone, Copy)]
+pub enum Order {
+    MoveResize,
+    ResizeMove,
+}
+
+impl Order {
+    pub fn swap(self) -> Self {
+        match self {
+            Order::MoveResize => Order::ResizeMove,
+            Order::ResizeMove => Order::MoveResize,
+        }
+    }
+}
+
+/// Set window size
+fn set_window_size(win: id, w: i32, h: i32) -> Result<()> {
     unsafe {
-        let focused_window = frontmost_window_id(pid)?;
-
         // Set window size
-        let new_size = CGSize::new(rect.width as f64, rect.height as f64);
+        let new_size = CGSize::new(w as f64, h as f64);
         let size_value = AXValueCreate(AXValueType::CGSize, &new_size as *const _ as *const _);
-
         let set_size_result = AXUIElementSetAttributeValue(
-            focused_window,
+            win,
             CFString::new("AXSize").as_concrete_TypeRef() as CFTypeRef,
             size_value,
         );
         if set_size_result != 0 {
             bail!("Failed to set window size.");
         }
+        Ok(())
+    }
+}
 
-        // Set window position (top-left)
-        let new_position = CGPoint::new(rect.x as f64, rect.y as f64);
+/// Set window position (top-left)
+fn set_window_pos(win: id, x: i32, y: i32) -> Result<()> {
+    unsafe {
+        let new_position = CGPoint::new(x as f64, y as f64);
         let pos_value = AXValueCreate(AXValueType::CGPoint, &new_position as *const _ as *const _);
         let set_pos_result = AXUIElementSetAttributeValue(
-            focused_window,
+            win,
             CFString::new("AXPosition").as_concrete_TypeRef() as CFTypeRef,
             pos_value,
         );
@@ -199,6 +217,22 @@ pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<()> {
 
         Ok(())
     }
+}
+
+/// Moves and resizes the focused window of the app with the given `pid` to `rect` using the macOS Accessibility API (native).
+pub fn move_frontmost_window(pid: i32, rect: &Rect, order: Order) -> Result<()> {
+    let focused_window = frontmost_window_id(pid)?;
+    match order {
+        Order::MoveResize => {
+            set_window_pos(focused_window, rect.x, rect.y)?;
+            set_window_size(focused_window, rect.width, rect.height)?;
+        }
+        Order::ResizeMove => {
+            set_window_size(focused_window, rect.width, rect.height)?;
+            set_window_pos(focused_window, rect.x, rect.y)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn get_window_position_and_size(pid: i32) -> Result<Rect> {
