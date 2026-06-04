@@ -197,6 +197,33 @@ pub fn get_enhanced_user_interface(pid: i32) -> Result<bool> {
     }
 }
 
+/// Sets the `AXEnhancedUserInterface` attribute of the app with `pid`.
+/// We temporarily disable this around a move so that apps which mishandle rapid
+/// AX move/resize requests in that mode honor both requests. This mirrors what
+/// Rectangle.app does. The original value is restored by the caller afterwards.
+pub fn set_enhanced_user_interface(pid: i32, value: bool) -> Result<()> {
+    unsafe {
+        let ax_app = AXUIElementCreateApplication(pid);
+        if ax_app == nil {
+            bail!("Unable to create AXUIElement reference to app.");
+        }
+        let cf_value = if value {
+            CFBoolean::true_value()
+        } else {
+            CFBoolean::false_value()
+        };
+        let result = AXUIElementSetAttributeValue(
+            ax_app,
+            CFString::new("AXEnhancedUserInterface").as_concrete_TypeRef() as CFTypeRef,
+            cf_value.as_CFTypeRef(),
+        );
+        if result != 0 {
+            bail!("Unable to set AXEnhancedUserInterface (error {result}).");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Order {
     MoveResize,
@@ -223,6 +250,9 @@ fn set_window_size(win: id, w: i32, h: i32) -> Result<()> {
             CFString::new("AXSize").as_concrete_TypeRef() as CFTypeRef,
             size_value,
         );
+        if !size_value.is_null() {
+            CFRelease(size_value);
+        }
         if set_size_result != 0 {
             bail!("Failed to set window size.");
         }
@@ -240,6 +270,9 @@ fn set_window_pos(win: id, x: i32, y: i32) -> Result<()> {
             CFString::new("AXPosition").as_concrete_TypeRef() as CFTypeRef,
             pos_value,
         );
+        if !pos_value.is_null() {
+            CFRelease(pos_value);
+        }
         if set_pos_result != 0 {
             bail!("Failed to set window position.");
         }
@@ -285,6 +318,12 @@ pub fn get_window_position_and_size(pid: i32) -> Result<Rect> {
         );
 
         if result_pos != 0 || result_size != 0 {
+            if !pos_ref.is_null() {
+                CFRelease(pos_ref);
+            }
+            if !size_ref.is_null() {
+                CFRelease(size_ref);
+            }
             bail!("Unable to get pos or size");
         }
 
@@ -297,10 +336,12 @@ pub fn get_window_position_and_size(pid: i32) -> Result<Rect> {
             AXValueType::CGPoint,
             &mut position as *mut _ as *mut _,
         );
+        let ok_size = AXValueGetValue(size_ref, AXValueType::CGSize, &mut size as *mut _ as *mut _);
+        CFRelease(pos_ref);
+        CFRelease(size_ref);
         if !ok_pos {
             bail!("Failed to get window position.");
         }
-        let ok_size = AXValueGetValue(size_ref, AXValueType::CGSize, &mut size as *mut _ as *mut _);
         if !ok_size {
             bail!("Failed to get window size.");
         }
@@ -334,4 +375,9 @@ unsafe extern "C" {
         data: *mut std::ffi::c_void,
     ) -> bool;
 
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CFRelease(cf: CFTypeRef);
 }
