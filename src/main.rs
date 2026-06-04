@@ -60,6 +60,7 @@ struct Screen {
 enum Command {
     GetSpaceName(GetSpaceNameArgs),
     SetSpaceName(SetSpaceNameArgs),
+    ListSpaces(ListSpacesArgs),
     MoveWindow(MoveWindowArgs),
     Windows(WindowsArgs),
     Frame(FrameArgs),
@@ -85,6 +86,15 @@ struct SetSpaceNameArgs {
     #[argh(positional)]
     /// new name for the space. If not given, the name is reset.
     name: Option<String>,
+}
+
+/// List all Mission Control spaces grouped by display.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "list_spaces")]
+struct ListSpacesArgs {
+    /// emit the listing as JSON instead of a human-readable table
+    #[argh(switch)]
+    json: bool,
 }
 
 /// Move the current top level Window.
@@ -389,6 +399,103 @@ fn get_space_name(args: GetSpaceNameArgs) -> Result<()> {
     Ok(())
 }
 
+/// One space as exposed to the user (table row or JSON object).
+#[derive(Serialize)]
+struct SpaceEntry {
+    /// The Mission Control index of this space on its display, or `None` for
+    /// fullscreen spaces which do not consume a user-space index.
+    index: Option<u64>,
+    /// The managed space id (same value `set_space_name` expects).
+    id: u64,
+    /// The SkyLight space uuid, if available.
+    uuid: Option<String>,
+    /// The kind of space (user, fullscreen, ...).
+    #[serde(rename = "type")]
+    space_type: skylight::SpaceType,
+    /// The user-assigned name, or "Unnamed".
+    name: String,
+    /// Whether this is the currently active space.
+    current: bool,
+}
+
+/// One display section with its spaces.
+#[derive(Serialize)]
+struct DisplayEntry {
+    display: String,
+    spaces: Vec<SpaceEntry>,
+}
+
+/// Collects all spaces per display and joins them with user-assigned names.
+fn collect_display_entries() -> Result<Vec<DisplayEntry>> {
+    let state = State::load()?;
+    let active_id = skylight::get_current_space_id();
+    let displays = skylight::managed_display_spaces();
+
+    let mut out = Vec::new();
+    for display in displays {
+        let mut user_index = 0u64;
+        let mut spaces = Vec::new();
+        for space in &display.spaces {
+            let is_user = space.space_type == skylight::SpaceType::User;
+            let index = if is_user {
+                user_index += 1;
+                Some(user_index)
+            } else {
+                None
+            };
+            let current =
+                space.id == active_id || display.current_space_id == Some(space.id);
+            let name = match state.space_names.get(&space.id) {
+                Some(s) => s.clone(),
+                None => "Unnamed".to_string(),
+            };
+            spaces.push(SpaceEntry {
+                index,
+                id: space.id,
+                uuid: space.uuid.clone(),
+                space_type: space.space_type,
+                name,
+                current,
+            });
+        }
+        out.push(DisplayEntry {
+            display: display.display,
+            spaces,
+        });
+    }
+    Ok(out)
+}
+
+fn list_spaces(args: ListSpacesArgs) -> Result<()> {
+    let entries = collect_display_entries()?;
+
+    if args.json {
+        println!("{}", serde_json::to_string(&entries)?);
+        return Ok(());
+    }
+
+    for display in &entries {
+        println!("Display {}", display.display);
+        for space in &display.spaces {
+            let index = match space.index {
+                Some(i) => i.to_string(),
+                None => "-".to_string(),
+            };
+            let kind = match space.space_type {
+                skylight::SpaceType::User => "",
+                skylight::SpaceType::Fullscreen => " (fullscreen)",
+                skylight::SpaceType::Other => " (other)",
+            };
+            let marker = if space.current { "*" } else { " " };
+            println!(
+                "{} {:>3}  {:>6}  {}{}",
+                marker, index, space.id, space.name, kind
+            );
+        }
+    }
+    Ok(())
+}
+
 fn windows(_args: WindowsArgs) -> Result<()> {
     let out = axui::window_list(true);
     let o = serde_json::to_string(&out).unwrap();
@@ -406,6 +513,7 @@ fn main() -> Result<()> {
         Command::MoveWindow(args) => move_window(args)?,
         Command::GetSpaceName(args) => get_space_name(args)?,
         Command::SetSpaceName(args) => set_space_name(args)?,
+        Command::ListSpaces(args) => list_spaces(args)?,
         Command::Windows(args) => windows(args)?,
         Command::Frame(args) => print_frame(args)?,
     };
