@@ -28,7 +28,21 @@ more information and examples.
 
 The `contrib` directory contains an AppleScript that I use for Launchbar Integration. Just drop into
 `~/Library/Application Support/LaunchBar/Actions`, but make sure that `move_window` is in your path;
-otherwise edit the script.
+otherwise edit the script. It also has Hammerspoon integration.
+
+### Hammerspoon chooser
+
+`contrib/spaces_chooser.lua` is a self-contained Hammerspoon module that opens an `hs.chooser` listing all
+spaces (by name) and jumps to the selected one via `hs.spaces.gotoSpace`. Copy it to `~/.hammerspoon/`,
+then in your `init.lua`:
+
+    local spacesChooser = require("spaces_chooser")
+    -- spacesChooser.binary = "/usr/local/bin/move_window"  -- if not ~/bin/move_window
+    hs.hotkey.bind({ "ctrl", "alt" }, "s", function()
+        spacesChooser.show()
+    end)
+
+The top of the file documents how to bind it into an existing `hs.hotkey.modal` as well.
 
 ## Spaces
 
@@ -60,17 +74,3 @@ Pass `--json` for machine-readable output (one object per display, each with a `
 `{index, id, uuid, type, name, current}`):
 
     move_window list_spaces --json
-
-### Hammerspoon chooser
-
-`contrib/spaces_chooser.lua` is a self-contained Hammerspoon module that opens an `hs.chooser` listing all
-spaces (by name) and jumps to the selected one via `hs.spaces.gotoSpace`. Copy it to `~/.hammerspoon/`,
-then in your `init.lua`:
-
-    local spacesChooser = require("spaces_chooser")
-    -- spacesChooser.binary = "/usr/local/bin/move_window"  -- if not ~/bin/move_window
-    hs.hotkey.bind({ "ctrl", "alt" }, "s", function()
-        spacesChooser.show()
-    end)
-
-The top of the file documents how to bind it into an existing `hs.hotkey.modal` as well.
