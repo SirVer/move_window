@@ -73,7 +73,13 @@ impl Window {
             let bdict = unsafe {
                 CFDictionary::<CFString, CFNumber>::wrap_under_get_rule(item.as_CFTypeRef() as _)
             };
-            let i32 = |s| bdict.get(CFString::new(s)).to_i32().unwrap();
+            // CGWindowBounds values may be stored as floats, in which case
+            // `to_i32()` returns `None`. Fall back to `to_f64` and round.
+            let i32 = |s: &str| {
+                let n = bdict.get(CFString::new(s));
+                n.to_i32()
+                    .unwrap_or_else(|| n.to_f64().map(|v| v.round() as i32).unwrap_or(0))
+            };
             Rect {
                 x: i32("X"),
                 y: i32("Y"),
@@ -166,6 +172,29 @@ pub fn window_list(all_windows: bool) -> Vec<Window> {
     }
 
     window_vec
+}
+
+/// Returns the value of the `AXEnhancedUserInterface` attribute of the app with `pid`.
+/// When this is true (set e.g. by assistive software), apps are known to mishandle
+/// AX move/resize requests.
+pub fn get_enhanced_user_interface(pid: i32) -> Result<bool> {
+    unsafe {
+        let ax_app = AXUIElementCreateApplication(pid);
+        if ax_app == nil {
+            bail!("Unable to create AXUIElement reference to app.");
+        }
+        let mut value: id = nil;
+        let result = AXUIElementCopyAttributeValue(
+            ax_app,
+            CFString::new("AXEnhancedUserInterface").as_concrete_TypeRef() as CFTypeRef,
+            &mut value,
+        );
+        if result != 0 || value == nil {
+            bail!("Unable to read AXEnhancedUserInterface (error {result}).");
+        }
+        let b = CFBoolean::wrap_under_get_rule(value as _);
+        Ok(b == CFBoolean::true_value())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

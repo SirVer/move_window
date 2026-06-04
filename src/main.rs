@@ -62,6 +62,7 @@ enum Command {
     SetSpaceName(SetSpaceNameArgs),
     MoveWindow(MoveWindowArgs),
     Windows(WindowsArgs),
+    Frame(FrameArgs),
 }
 
 /// Get the name of a space.
@@ -92,6 +93,23 @@ struct SetSpaceNameArgs {
 struct MoveWindowArgs {
     #[argh(positional)]
     move_command: String,
+
+    /// target the focused window of this pid instead of the frontmost application
+    #[argh(option)]
+    pid: Option<i32>,
+
+    /// print each positioning attempt and its outcome to stderr
+    #[argh(switch, short = 'v')]
+    verbose: bool,
+}
+
+/// Print the AX frame of the focused window as JSON.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "frame")]
+struct FrameArgs {
+    /// target the focused window of this pid instead of the frontmost application
+    #[argh(option)]
+    pid: Option<i32>,
 }
 
 /// List the currently open Windows.
@@ -304,10 +322,15 @@ fn move_window(args: MoveWindowArgs) -> Result<()> {
         height: (height * f64::from(params.y_end - params.y_start + 1)).round() as i32,
     };
 
-    let pid = match frontmost_application_pid() {
+    let pid = match args.pid.or_else(frontmost_application_pid) {
         Some(p) => p,
         None => bail!("Frontmost application has no PID."),
     };
+    if args.verbose {
+        let enhanced = axui::get_enhanced_user_interface(pid);
+        eprintln!("AXEnhancedUserInterface: {enhanced:?}");
+        eprintln!("target frame: {frame:?}");
+    }
     // We try really hard to move the windo into the right position, but give up
     // after 10 times if it does not work.
     // Also, AX events are async and there are programs that eat events if they come to close to
@@ -315,13 +338,27 @@ fn move_window(args: MoveWindowArgs) -> Result<()> {
     // command we send first on every try, so if the 2nd is eaten, we get it through on the next
     // try.
     let mut order = axui::Order::MoveResize;
-    for _ in 0..10 {
+    for attempt in 0..10 {
         axui::move_frontmost_window(pid, &frame, order)?;
         order = order.swap();
-        if axui::get_window_position_and_size(pid)? == frame {
+        let actual = axui::get_window_position_and_size(pid)?;
+        if args.verbose {
+            eprintln!("attempt {attempt}: actual {actual:?}");
+        }
+        if actual == frame {
             break;
         }
     }
+    Ok(())
+}
+
+fn print_frame(args: FrameArgs) -> Result<()> {
+    let pid = match args.pid.or_else(frontmost_application_pid) {
+        Some(p) => p,
+        None => bail!("Frontmost application has no PID."),
+    };
+    let frame = axui::get_window_position_and_size(pid)?;
+    println!("{}", serde_json::to_string(&frame).unwrap());
     Ok(())
 }
 
@@ -370,6 +407,7 @@ fn main() -> Result<()> {
         Command::GetSpaceName(args) => get_space_name(args)?,
         Command::SetSpaceName(args) => set_space_name(args)?,
         Command::Windows(args) => windows(args)?,
+        Command::Frame(args) => print_frame(args)?,
     };
 
     Ok(())
