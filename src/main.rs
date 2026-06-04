@@ -514,6 +514,9 @@ fn collect_display_entries() -> Result<Vec<DisplayEntry>> {
 
 fn list_spaces(args: ListSpacesArgs) -> Result<()> {
     let entries = collect_display_entries()?;
+    if entries.is_empty() {
+        bail!("Could not enumerate spaces. Is there a window server session?");
+    }
 
     if args.json {
         println!("{}", serde_json::to_string(&entries)?);
@@ -551,7 +554,13 @@ fn windows(_args: WindowsArgs) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Args = argh::from_env();
-    if !axui::check_accessibility_permission() {
+    // Only the subcommands that talk to the AX API need accessibility permission. The space
+    // subcommands work from any terminal (and from Hammerspoon's chooser) without it.
+    let needs_accessibility = matches!(
+        args.subcommand,
+        Command::MoveWindow(_) | Command::Windows(_) | Command::Frame(_)
+    );
+    if needs_accessibility && !axui::check_accessibility_permission() {
         panic!("Accessibility permissions not granted. Please enable them in System Settings.");
     }
 
