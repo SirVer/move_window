@@ -250,8 +250,9 @@ fn get_screens() -> Vec<Screen> {
     };
     // The window frames have their origins in the bottom left of the screen, y going upwards.
     // However, screen bounds have the origin at the top left going down. We need to convert here
-    // to get them in the screen space.
-    for idx in 1..rv.len() {
+    // to get them in the screen space. This must be applied to every screen, including index 0:
+    // on the main screen the menu bar offset means the visible frame's top edge is not at y=0.
+    for idx in 0..rv.len() {
         let y = rv[0].frame.height - rv[idx].visible_frame.height - rv[idx].visible_frame.y;
         rv[idx].visible_frame.y = y;
     }
@@ -326,28 +327,73 @@ fn move_window(args: MoveWindowArgs) -> Result<()> {
         Some(p) => p,
         None => bail!("Frontmost application has no PID."),
     };
+
+    // Some apps (Firefox, anything with AXEnhancedUserInterface set by assistive software such as
+    // Hammerspoon) honor only the last of two rapid AX requests when that attribute is true,
+    // so position and size never both land. We temporarily disable it for the duration of the move
+    // and restore it afterwards on every exit path, mirroring what Rectangle.app does.
+    let enhanced_was_on = axui::get_enhanced_user_interface(pid).unwrap_or(false);
     if args.verbose {
-        let enhanced = axui::get_enhanced_user_interface(pid);
-        eprintln!("AXEnhancedUserInterface: {enhanced:?}");
+        eprintln!("AXEnhancedUserInterface: {enhanced_was_on}");
         eprintln!("target frame: {frame:?}");
     }
-    // We try really hard to move the windo into the right position, but give up
-    // after 10 times if it does not work.
-    // Also, AX events are async and there are programs that eat events if they come to close to
-    // each other (Firefox for example). This is an attempt to work around this; we alternate which
-    // command we send first on every try, so if the 2nd is eaten, we get it through on the next
-    // try.
+    if enhanced_was_on {
+        // A failure to disable is not fatal; we still try the move below.
+        let _ = axui::set_enhanced_user_interface(pid, false);
+    }
+
+    let result = converge_window(pid, &frame, args.verbose);
+
+    if enhanced_was_on {
+        // Restore the original value even if the move failed, before propagating the error.
+        let _ = axui::set_enhanced_user_interface(pid, true);
+    }
+    result
+}
+
+/// Drives the focused window of `pid` to `frame`, retrying because AX move/resize is async and
+/// some apps drop or reorder requests.
+fn converge_window(pid: i32, frame: &Rect, verbose: bool) -> Result<()> {
+    // We try really hard to move the window into the right position, but give up after a handful of
+    // attempts. AX events are async and there are programs that eat events if they come too close
+    // to each other (Firefox for example), so we alternate which command we send first on every
+    // try; if the 2nd is eaten, it gets through on the next try. With AXEnhancedUserInterface
+    // disabled (see caller) well-behaved apps land in the very first attempt.
     let mut order = axui::Order::MoveResize;
+    let mut previous: Option<Rect> = None;
     for attempt in 0..10 {
-        axui::move_frontmost_window(pid, &frame, order)?;
+        // Give async apps a moment to catch up between attempts. There is no delay before the first
+        // attempt so well-behaved apps stay as fast as they were.
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        axui::move_frontmost_window(pid, frame, order)?;
         order = order.swap();
         let actual = axui::get_window_position_and_size(pid)?;
-        if args.verbose {
+        if verbose {
             eprintln!("attempt {attempt}: actual {actual:?}");
         }
-        if actual == frame {
+        if actual == *frame {
+            if verbose {
+                eprintln!("stop: reached target after {} attempt(s).", attempt + 1);
+            }
             break;
         }
+        // If the window did not change since the previous attempt it is stable but constrained
+        // (e.g. an app minimum size), so retrying further is pointless. Only from the second
+        // attempt onward, since the first attempt has no previous frame to compare against.
+        if let Some(prev) = &previous
+            && *prev == actual
+        {
+            if verbose {
+                eprintln!("stop: window stable at {actual:?} (not equal to target), accepting.");
+            }
+            break;
+        }
+        if verbose && attempt == 9 {
+            eprintln!("stop: giving up after 10 attempts; last actual {actual:?}.");
+        }
+        previous = Some(actual);
     }
     Ok(())
 }
