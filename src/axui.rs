@@ -224,21 +224,6 @@ pub fn set_enhanced_user_interface(pid: i32, value: bool) -> Result<()> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Order {
-    MoveResize,
-    ResizeMove,
-}
-
-impl Order {
-    pub fn swap(self) -> Self {
-        match self {
-            Order::MoveResize => Order::ResizeMove,
-            Order::ResizeMove => Order::MoveResize,
-        }
-    }
-}
-
 /// Set window size
 fn set_window_size(win: id, w: i32, h: i32) -> Result<()> {
     unsafe {
@@ -254,7 +239,7 @@ fn set_window_size(win: id, w: i32, h: i32) -> Result<()> {
             CFRelease(size_value);
         }
         if set_size_result != 0 {
-            bail!("Failed to set window size.");
+            bail!("Failed to set window size (AXError {set_size_result}).");
         }
         Ok(())
     }
@@ -274,27 +259,38 @@ fn set_window_pos(win: id, x: i32, y: i32) -> Result<()> {
             CFRelease(pos_value);
         }
         if set_pos_result != 0 {
-            bail!("Failed to set window position.");
+            bail!("Failed to set window position (AXError {set_pos_result}).");
         }
 
         Ok(())
     }
 }
 
+/// Debug helper: set only the size of the focused window of `pid`.
+pub fn debug_set_size(pid: i32, w: i32, h: i32) -> Result<()> {
+    let win = frontmost_window_id(pid)?;
+    set_window_size(win, w, h)
+}
+
 /// Moves and resizes the focused window of the app with the given `pid` to `rect` using the macOS Accessibility API (native).
-pub fn move_frontmost_window(pid: i32, rect: &Rect, order: Order) -> Result<()> {
+///
+/// The order is size, position, size (like Rectangle.app): macOS silently ignores AXSize
+/// requests while a window overhangs any edge of its current screen, so a shrink must
+/// happen BEFORE the move (while the window still fits its old screen), and a grow beyond the
+/// old screen only succeeds AFTER the move - the trailing size request covers that case and
+/// also corrects the WindowServer's auto-fit shrink that a cross-screen move can apply.
+pub fn move_frontmost_window(pid: i32, rect: &Rect) -> Result<()> {
     let focused_window = frontmost_window_id(pid)?;
-    match order {
-        Order::MoveResize => {
-            set_window_pos(focused_window, rect.x, rect.y)?;
-            set_window_size(focused_window, rect.width, rect.height)?;
-        }
-        Order::ResizeMove => {
-            set_window_size(focused_window, rect.width, rect.height)?;
-            set_window_pos(focused_window, rect.x, rect.y)?;
-        }
-    }
+    set_window_size(focused_window, rect.width, rect.height)?;
+    set_window_pos(focused_window, rect.x, rect.y)?;
+    set_window_size(focused_window, rect.width, rect.height)?;
     Ok(())
+}
+
+/// Moves the focused window of `pid` without touching its size.
+pub fn set_frontmost_window_pos(pid: i32, x: i32, y: i32) -> Result<()> {
+    let focused_window = frontmost_window_id(pid)?;
+    set_window_pos(focused_window, x, y)
 }
 
 pub fn get_window_position_and_size(pid: i32) -> Result<Rect> {

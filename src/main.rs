@@ -64,6 +64,28 @@ enum Command {
     MoveWindow(MoveWindowArgs),
     Windows(WindowsArgs),
     Frame(FrameArgs),
+    SetFrame(SetFrameArgs),
+}
+
+/// Debug: set position and/or size of the focused window step by step.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "set_frame")]
+struct SetFrameArgs {
+    /// target the focused window of this pid instead of the frontmost application
+    #[argh(option)]
+    pid: Option<i32>,
+
+    /// position as "x,y" (optional)
+    #[argh(option)]
+    pos: Option<String>,
+
+    /// size as "w,h" (optional)
+    #[argh(option)]
+    size: Option<String>,
+
+    /// set size before position
+    #[argh(switch)]
+    size_first: bool,
 }
 
 /// Get the name of a space.
@@ -352,7 +374,15 @@ fn move_window(args: MoveWindowArgs) -> Result<()> {
         let _ = axui::set_enhanced_user_interface(pid, false);
     }
 
-    let result = converge_window(pid, &frame, args.verbose);
+    // If a previous (failed) move left the window larger than the target screen, macOS ignores
+    // all resize requests until the window is on a screen it fits. Park it on the largest
+    // screen in that case; the biggest visible frame gives the resize the best chance to land.
+    let park = screens
+        .iter()
+        .max_by_key(|s| s.visible_frame.width as i64 * s.visible_frame.height as i64)
+        .map(|s| s.visible_frame.clone());
+
+    let result = converge_window(pid, &frame, &screen.visible_frame, park.as_ref(), args.verbose);
 
     if enhanced_was_on {
         // Restore the original value even if the move failed, before propagating the error.
@@ -362,23 +392,28 @@ fn move_window(args: MoveWindowArgs) -> Result<()> {
 }
 
 /// Drives the focused window of `pid` to `frame`, retrying because AX move/resize is async and
-/// some apps drop or reorder requests.
-fn converge_window(pid: i32, frame: &Rect, verbose: bool) -> Result<()> {
-    // We try really hard to move the window into the right position, but give up after a handful of
-    // attempts. AX events are async and there are programs that eat events if they come too close
-    // to each other (Firefox for example), so we alternate which command we send first on every
-    // try; if the 2nd is eaten, it gets through on the next try. With AXEnhancedUserInterface
-    // disabled (see caller) well-behaved apps land in the very first attempt.
-    let mut order = axui::Order::MoveResize;
+/// some apps drop or reorder requests. `screen_vf` is the visible frame of the target screen;
+/// `park` is the visible frame of the largest screen, used to un-wedge oversized windows.
+fn converge_window(
+    pid: i32,
+    frame: &Rect,
+    screen_vf: &Rect,
+    park: Option<&Rect>,
+    verbose: bool,
+) -> Result<()> {
+    // We try really hard to move the window into the right position, but give up after a handful
+    // of attempts. AX events are async and there are programs that eat events if they come too
+    // close to each other. With AXEnhancedUserInterface disabled (see caller) well-behaved apps
+    // land in the very first attempt.
     let mut previous: Option<Rect> = None;
+    let mut parked = false;
     for attempt in 0..10 {
         // Give async apps a moment to catch up between attempts. There is no delay before the first
         // attempt so well-behaved apps stay as fast as they were.
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(15));
         }
-        axui::move_frontmost_window(pid, frame, order)?;
-        order = order.swap();
+        axui::move_frontmost_window(pid, frame)?;
         let actual = axui::get_window_position_and_size(pid)?;
         if verbose {
             eprintln!("attempt {attempt}: actual {actual:?}");
@@ -389,12 +424,33 @@ fn converge_window(pid: i32, frame: &Rect, verbose: bool) -> Result<()> {
             }
             break;
         }
-        // If the window did not change since the previous attempt it is stable but constrained
-        // (e.g. an app minimum size), so retrying further is pointless. Only from the second
-        // attempt onward, since the first attempt has no previous frame to compare against.
+        // If the window did not change since the previous attempt it is stable but not at the
+        // target. Two possible reasons:
+        //  - The window overhangs the target screen's visible frame: macOS silently ignores
+        //    every resize request while a window sticks out past any edge of its screen. Park
+        //    the window on the largest screen (where it should fit again) and retry; the next
+        //    attempt shrinks it there and moves it over.
+        //  - An app constraint (e.g. a minimum window size); retrying further is pointless.
         if let Some(prev) = &previous
             && *prev == actual
         {
+            // The position requests do land, so the window sits at the target origin; it wedges
+            // if its actual size sticks out past the screen's bottom-right corner from there.
+            let oversized = frame.x + actual.width > screen_vf.x + screen_vf.width
+                || frame.y + actual.height > screen_vf.y + screen_vf.height;
+            if oversized && !parked && let Some(park) = park {
+                parked = true;
+                previous = None;
+                if verbose {
+                    eprintln!(
+                        "window {actual:?} is larger than the target screen and resize requests \
+                         are being ignored; parking it at ({}, {}) to un-wedge it.",
+                        park.x, park.y
+                    );
+                }
+                axui::set_frontmost_window_pos(pid, park.x, park.y)?;
+                continue;
+            }
             if verbose {
                 eprintln!("stop: window stable at {actual:?} (not equal to target), accepting.");
             }
@@ -405,6 +461,49 @@ fn converge_window(pid: i32, frame: &Rect, verbose: bool) -> Result<()> {
         }
         previous = Some(actual);
     }
+    Ok(())
+}
+
+fn set_frame(args: SetFrameArgs) -> Result<()> {
+    let pid = match args.pid.or_else(frontmost_application_pid) {
+        Some(p) => p,
+        None => bail!("Frontmost application has no PID."),
+    };
+    let parse_pair = |s: &str| -> Result<(i32, i32)> {
+        let mut it = s.split(',');
+        let a = it.next().context("missing first value")?.trim().parse()?;
+        let b = it.next().context("missing second value")?.trim().parse()?;
+        Ok((a, b))
+    };
+    let pos = args.pos.as_deref().map(parse_pair).transpose()?;
+    let size = args.size.as_deref().map(parse_pair).transpose()?;
+
+    eprintln!("before: {:?}", axui::get_window_position_and_size(pid)?);
+    let do_pos = || -> Result<()> {
+        if let Some((x, y)) = pos {
+            let r = axui::set_frontmost_window_pos(pid, x, y);
+            eprintln!("set_pos({x},{y}) -> {r:?}");
+            eprintln!("after pos: {:?}", axui::get_window_position_and_size(pid)?);
+        }
+        Ok(())
+    };
+    let do_size = || -> Result<()> {
+        if let Some((w, h)) = size {
+            let r = axui::debug_set_size(pid, w, h);
+            eprintln!("set_size({w},{h}) -> {r:?}");
+            eprintln!("after size: {:?}", axui::get_window_position_and_size(pid)?);
+        }
+        Ok(())
+    };
+    if args.size_first {
+        do_size()?;
+        do_pos()?;
+    } else {
+        do_pos()?;
+        do_size()?;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    eprintln!("settled: {:?}", axui::get_window_position_and_size(pid)?);
     Ok(())
 }
 
@@ -558,7 +657,7 @@ fn main() -> Result<()> {
     // subcommands work from any terminal (and from Hammerspoon's chooser) without it.
     let needs_accessibility = matches!(
         args.subcommand,
-        Command::MoveWindow(_) | Command::Windows(_) | Command::Frame(_)
+        Command::MoveWindow(_) | Command::Windows(_) | Command::Frame(_) | Command::SetFrame(_)
     );
     if needs_accessibility && !axui::check_accessibility_permission() {
         panic!("Accessibility permissions not granted. Please enable them in System Settings.");
@@ -571,6 +670,7 @@ fn main() -> Result<()> {
         Command::ListSpaces(args) => list_spaces(args)?,
         Command::Windows(args) => windows(args)?,
         Command::Frame(args) => print_frame(args)?,
+        Command::SetFrame(args) => set_frame(args)?,
     };
 
     Ok(())
